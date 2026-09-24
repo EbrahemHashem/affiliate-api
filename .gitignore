@@ -1,5 +1,19 @@
-.env
-node_modules
+# dependencies
+node_modules/
 
-/src/generated/prisma
+# build output
+dist/
+
+# env files (keep .env.example committed)
+.env
+.env.*
+!.env.example
+
+# prisma generated client (if you use output = "../src/generated/prisma")
 src/generated/
+
+# logs & OS/editor junk
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/
