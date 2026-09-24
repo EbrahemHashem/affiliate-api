@@ -7,22 +7,23 @@ datasource db {
   provider = "postgresql"
 }
 
-
-model User {
-  id           String     @id @default(uuid())
-  email        String     @unique
-  passwordHash String
-  role         String     @default("customer") // customer | admin | finance
-  stripeId     String?    @unique // set by Stripe customer.created
-  createdAt    DateTime   @default(now())
-  affiliate    Affiliate?
-  referral     Referral?  @relation("referredUser")
+// Mirror of the platform's users table. id = the platform's user id (not generated here).
+// The platform keeps it up to date through POST /internal/users and /internal/signup.
+model PlatformUser {
+  id        String     @id
+  email     String     @unique
+  role      String     @default("customer") // customer | partner | admin | finance — one role per account
+  stripeId  String?    @unique // set by Stripe customer.created
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  affiliate Affiliate?
+  referral  Referral?  @relation("referredUser")
 }
 
 model Affiliate {
   id             String          @id @default(uuid())
   userId         String          @unique
-  user           User            @relation(fields: [userId], references: [id])
+  user           PlatformUser    @relation(fields: [userId], references: [id])
   code           String          @unique
   status         String          @default("active") // active | suspended
   stripeCouponId String?
@@ -153,7 +154,7 @@ model Referral {
   affiliateId    String
   affiliate      Affiliate    @relation(fields: [affiliateId], references: [id])
   referredUserId String       @unique
-  referredUser   User         @relation("referredUser", fields: [referredUserId], references: [id])
+  referredUser   PlatformUser @relation("referredUser", fields: [referredUserId], references: [id])
   clickId        String?
   firstClickId   String?
   firstClickAt   DateTime?

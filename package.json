@@ -4,10 +4,10 @@
   "description": "Affiliate program API",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "node api.js && tsx watch src/server.ts",
     "worker": "tsx watch src/worker.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
+    "build": "node api.js && tsc",
+    "start": "node api.js && node dist/server.js",
     "test": "vitest run"
   },
   "license": "ISC",
