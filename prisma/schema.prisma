@@ -1,0 +1,237 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String
+  role         String     @default("customer") // customer | admin | finance
+  stripeId     String?    @unique // set by Stripe customer.created
+  createdAt    DateTime   @default(now())
+  affiliate    Affiliate?
+  referral     Referral?  @relation("referredUser")
+}
+
+model Affiliate {
+  id             String          @id @default(uuid())
+  userId         String          @unique
+  user           User            @relation(fields: [userId], references: [id])
+  code           String          @unique
+  status         String          @default("active") // active | suspended
+  stripeCouponId String?
+  payoutMethod   Json?
+  taxStatus      String          @default("missing") // missing | submitted | verified
+  currentDealId  String?
+  deals          AffiliateDeal[]
+  links          AffiliateLink[]
+  referrals      Referral[]
+  commissions    Commission[]
+  payouts        Payout[]
+  createdAt      DateTime        @default(now())
+}
+
+model DealTemplate {
+  id                 String    @id @default(uuid())
+  name               String    @unique
+  model              String    @default("percent") // percent | fixed
+  subscriptionBps    Int
+  moduleBps          Int
+  hostingBps         Int
+  fixedPerInvoice    Int?
+  firstSaleBonus     Int?
+  commissionMonths   Int
+  cookieDays         Int       @default(60)
+  holdDays           Int       @default(30)
+  minPayout          Int       @default(5000)
+  bonusMilestones    Json      @default("[]")
+  tierRules          Json      @default("[]")
+  promoMonths        Int?
+  fallbackTemplateId String?
+  isDefault          Boolean   @default(false)
+  endsAt             DateTime?
+}
+
+// One row per version, never edited (except endedAt)
+model AffiliateDeal {
+  id               String    @id @default(uuid())
+  affiliateId      String
+  affiliate        Affiliate @relation(fields: [affiliateId], references: [id])
+  templateId       String?
+  name             String
+  model            String
+  subscriptionBps  Int
+  moduleBps        Int
+  hostingBps       Int
+  fixedPerInvoice  Int?
+  firstSaleBonus   Int?
+  commissionMonths Int
+  cookieDays       Int
+  holdDays         Int
+  minPayout        Int
+  bonusMilestones  Json
+  tierRules        Json
+  effectiveFrom    DateTime
+  endedAt          DateTime?
+  reason           String
+  createdBy        String?
+  createdAt        DateTime  @default(now())
+
+  @@index([affiliateId, effectiveFrom])
+}
+
+model AffiliateApplication {
+  id                 String             @id @default(uuid())
+  userId             String?
+  name               String
+  email              String
+  channelUrl         String
+  channelType        String
+  promoPlan          String
+  status             String             @default("waiting") // waiting | needs_info | approved | rejected
+  termsVersion       String
+  decidedBy          String?
+  decidedAt          DateTime?
+  decisionNote       String?
+  assignedTemplateId String?
+  affiliateId        String?
+  checks             ApplicationCheck[]
+  createdAt          DateTime           @default(now())
+}
+
+model ApplicationCheck {
+  id            String               @id @default(uuid())
+  applicationId String
+  application   AffiliateApplication @relation(fields: [applicationId], references: [id])
+  key           String // channel_reachable | content_relevant | no_duplicate | identity | not_coupon_site
+  result        String               @default("pending") // pass | warn | fail | pending
+  detail        String               @default("")
+  evidence      Json?
+  ranAt         DateTime             @default(now())
+
+  @@unique([applicationId, key])
+}
+
+model AffiliateLink {
+  id          String           @id @default(uuid())
+  affiliateId String
+  affiliate   Affiliate        @relation(fields: [affiliateId], references: [id])
+  campaign    String
+  destination String           @default("/")
+  couponId    String?
+  clicks      AffiliateClick[]
+  createdAt   DateTime         @default(now())
+
+  @@unique([affiliateId, campaign])
+}
+
+model AffiliateClick {
+  id          String        @id @default(uuid())
+  linkId      String
+  link        AffiliateLink @relation(fields: [linkId], references: [id])
+  affiliateId String
+  ipHash      String
+  uaHash      String
+  referrer    String?
+  landingUrl  String
+  utm         Json?
+  country     String?
+  createdAt   DateTime      @default(now())
+
+  @@index([affiliateId, createdAt])
+  @@index([ipHash, createdAt])
+}
+
+model Referral {
+  id             String       @id @default(uuid())
+  affiliateId    String
+  affiliate      Affiliate    @relation(fields: [affiliateId], references: [id])
+  referredUserId String       @unique
+  referredUser   User         @relation("referredUser", fields: [referredUserId], references: [id])
+  clickId        String?
+  firstClickId   String?
+  firstClickAt   DateTime?
+  lastClickAt    DateTime?
+  source         String // link | coupon | manual
+  firstPaidAt    DateTime?
+  expiresAt      DateTime?
+  fraudStatus    String       @default("clean") // clean | flagged | blocked
+  commissions    Commission[]
+  createdAt      DateTime     @default(now())
+}
+
+// Append-only ledger
+model Commission {
+  id              String    @id @default(uuid())
+  affiliateId     String
+  affiliate       Affiliate @relation(fields: [affiliateId], references: [id])
+  referralId      String?
+  referral        Referral? @relation(fields: [referralId], references: [id])
+  dealId          String?
+  linkId          String?
+  kind            String // earning | reversal | adjustment | bonus
+  sourceType      String // subscription | module | hosting | bonus
+  stripeInvoiceId String?
+  stripeRefundId  String?   @unique
+  bonusKey        String?   @unique // e.g. affiliateId:milestone:25
+  baseAmount      Int       @default(0)
+  rateBps         Int?
+  amount          Int // negative for reversal
+  currency        String    @default("usd")
+  status          String    @default("pending") // pending | approved | paid | void | rejected
+  holdUntil       DateTime?
+  approvedAt      DateTime?
+  paidAt          DateTime?
+  payoutId        String?
+  payout          Payout?   @relation(fields: [payoutId], references: [id])
+  createdAt       DateTime  @default(now())
+
+  @@unique([stripeInvoiceId, kind, sourceType])
+  @@index([affiliateId, status])
+  @@index([linkId, createdAt])
+  @@index([status, holdUntil])
+}
+
+model Payout {
+  id             String       @id @default(uuid())
+  affiliateId    String
+  affiliate      Affiliate    @relation(fields: [affiliateId], references: [id])
+  amount         Int
+  currency       String       @default("usd")
+  methodSnapshot Json
+  status         String       @default("requested") // requested | approved | sent | failed | cancelled
+  externalRef    String?
+  approvedBy     String?
+  requestedAt    DateTime     @default(now())
+  approvedAt     DateTime?
+  sentAt         DateTime?
+  commissions    Commission[]
+}
+
+// Idempotency: process each Stripe event once
+model WebhookEvent {
+  id         String   @id // Stripe event id
+  type       String
+  receivedAt DateTime @default(now())
+}
+
+// Domain log for audit and analytics
+model AffiliateEvent {
+  id           String   @id @default(uuid())
+  type         String
+  affiliateId  String?
+  referralId   String?
+  commissionId String?
+  payoutId     String?
+  actorId      String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([type, createdAt])
+}
